@@ -26,7 +26,29 @@ function rangeDates(range) {
   if (range === "7d") return { start: addDays(today, -6), end: today };
   return { start: addDays(today, -29), end: today }; // 30d
 }
-const slash = iso => iso.replace(/-/g, "/");
+// Décalage (ms) d'un fuseau pour une date donnée
+function tzOffsetMs(date, tz) {
+  const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const p = dtf.formatToParts(date).reduce((a, x) => { a[x.type] = x.value; return a; }, {});
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return asUTC - date.getTime();
+}
+// Epoch (secondes) de minuit, heure de Paris, pour une date YYYY-MM-DD
+function parisDayStartEpoch(iso) {
+  const base = new Date(iso + "T00:00:00Z");
+  const off = tzOffsetMs(base, "Europe/Paris");
+  return Math.floor((base.getTime() - off) / 1000);
+}
+// Exécute fn sur tous les items avec une concurrence limitée (parallélisme)
+async function mapPool(items, concurrency, fn) {
+  const ret = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) { const idx = i++; ret[idx] = await fn(items[idx], idx); }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length || 1) }, worker));
+  return ret;
+}
 
 // ---------- Shopify ----------
 async function shopifyql(q) {
@@ -38,10 +60,16 @@ async function shopifyql(q) {
       variables: { q }
     })
   });
-  const j = await r.json();
-  if (j.errors) throw new Error("GraphQL: " + j.errors.map(e => e.message).join("; "));
+  let j;
+  try { j = await r.json(); } catch (e) { throw new Error(`HTTP ${r.status} (réponse non-JSON)`); }
+  if (j.errors) {
+    const msg = Array.isArray(j.errors) ? j.errors.map(e => e.message || JSON.stringify(e)).join("; ")
+              : typeof j.errors === "string" ? j.errors
+              : JSON.stringify(j.errors);
+    throw new Error(`HTTP ${r.status} — ${msg}`);
+  }
   const node = j?.data?.shopifyqlQuery;
-  if (!node) throw new Error("réponse vide");
+  if (!node) throw new Error("data.shopifyqlQuery absent");
   if (node.parseErrors && node.parseErrors.length) throw new Error("ShopifyQL: " + node.parseErrors.join(" | "));
   if (!node.tableData) return [];
   return node.tableData.rows || []; // rows = tableau d'objets {colonne: valeur}
@@ -133,17 +161,19 @@ module.exports = async (req, res) => {
   let token = null;
   try {
     token = await gmailToken();
-    const ids = await gListIds(token, `${SUBJECT} after:${slash(start)} before:${slash(addDays(end, 1))}`);
+    const startEp = parisDayStartEpoch(start);
+    const endEp = parisDayStartEpoch(addDays(end, 1)); // minuit Paris du lendemain
+    const ids = await gListIds(token, `${SUBJECT} after:${startEp} before:${endEp}`);
     result.demandes_brut = ids.length;
 
     // Matching exact : seulement sur fenêtres courtes (sinon trop long en live → prévoir un cron)
-    if (days <= 2 && ids.length <= 400) {
-      const emails = new Set();
-      for (const id of ids) { const e = await gExtractEmail(token, id); if (e) emails.add(e); }
+    if (days <= 2 && ids.length <= 600) {
+      const extracted = await mapPool(ids, 15, id => gExtractEmail(token, id).catch(() => null));
+      const emails = new Set(extracted.filter(Boolean));
       result.demandes_uniques = emails.size;
-      let matched = 0;
-      for (const e of emails) { try { if (await hasPaidOrder(e, start, end)) matched++; } catch (err) {} }
-      result.matched_ventes = matched;
+      const uniq = [...emails];
+      const flags = await mapPool(uniq, 10, e => hasPaidOrder(e, start, end).catch(() => false));
+      result.matched_ventes = flags.filter(Boolean).length;
     } else {
       result.matched_ventes = null;
       result.partial.matching = "fenêtre trop large pour le matching live";
