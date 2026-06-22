@@ -4,7 +4,7 @@ const SHOP_TOKEN = process.env.SHOPIFY_TOKEN;
 const G_ID = process.env.GOOGLE_CLIENT_ID;
 const G_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const G_REFRESH = process.env.GOOGLE_REFRESH_TOKEN;
-const API_VER = "2024-10";
+const API_VER = "2025-10";
 const SUBJECT = 'subject:"Nouvelle demande extrait"';
 
 // ---------- dates (Europe/Paris) ----------
