@@ -1,9 +1,6 @@
 // api/kpis.js — Mélodine dashboard backend (Vercel serverless, Node 18+)
-// Interroge Shopify (trafic, ventes, checkout) + Gmail (demandes d'extrait, matching)
-// Aucune clé n'est dans ce fichier : tout vient des variables d'environnement Vercel.
-
-const SHOP = process.env.SHOPIFY_STORE;            // ex: c4vfmv-0s.myshopify.com
-const SHOP_TOKEN = process.env.SHOPIFY_TOKEN;      // Admin API access token
+const SHOP = process.env.SHOPIFY_STORE;
+const SHOP_TOKEN = process.env.SHOPIFY_TOKEN;
 const G_ID = process.env.GOOGLE_CLIENT_ID;
 const G_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const G_REFRESH = process.env.GOOGLE_REFRESH_TOKEN;
@@ -13,7 +10,7 @@ const SUBJECT = 'subject:"Nouvelle demande extrait"';
 // ---------- dates (Europe/Paris) ----------
 function parisToday() {
   const p = new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  return p; // YYYY-MM-DD
+  return p;
 }
 function addDays(iso, n) {
   const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
@@ -24,22 +21,19 @@ function rangeDates(range) {
   if (range === "today") return { start: today, end: today };
   if (range === "yesterday") { const y = addDays(today, -1); return { start: y, end: y }; }
   if (range === "7d") return { start: addDays(today, -6), end: today };
-  return { start: addDays(today, -29), end: today }; // 30d
+  return { start: addDays(today, -29), end: today };
 }
-// Décalage (ms) d'un fuseau pour une date donnée
 function tzOffsetMs(date, tz) {
   const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const p = dtf.formatToParts(date).reduce((a, x) => { a[x.type] = x.value; return a; }, {});
   const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
   return asUTC - date.getTime();
 }
-// Epoch (secondes) de minuit, heure de Paris, pour une date YYYY-MM-DD
 function parisDayStartEpoch(iso) {
   const base = new Date(iso + "T00:00:00Z");
   const off = tzOffsetMs(base, "Europe/Paris");
   return Math.floor((base.getTime() - off) / 1000);
 }
-// Exécute fn sur tous les items avec une concurrence limitée (parallélisme)
 async function mapPool(items, concurrency, fn) {
   const ret = new Array(items.length);
   let i = 0;
@@ -51,14 +45,30 @@ async function mapPool(items, concurrency, fn) {
 }
 
 // ---------- Shopify ----------
-async function shopifyql(q) {
-  const r = await fetch(`https://${SHOP}/admin/api/${API_VER}/graphql.json`, {
+// Certains jetons passent par X-Shopify-Access-Token, d'autres par Authorization: Bearer.
+// On tente le 1er, et si 401 on retente avec le 2e.
+async function shopifyAdmin(bodyObj) {
+  const url = `https://${SHOP}/admin/api/${API_VER}/graphql.json`;
+  const body = JSON.stringify(bodyObj);
+  let r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": SHOP_TOKEN },
-    body: JSON.stringify({
-      query: `query($q:String!){ shopifyqlQuery(query:$q){ parseErrors tableData { columns { name } rows } } }`,
-      variables: { q }
-    })
+    body
+  });
+  if (r.status === 401) {
+    r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SHOP_TOKEN },
+      body
+    });
+  }
+  return r;
+}
+
+async function shopifyql(q) {
+  const r = await shopifyAdmin({
+    query: `query($q:String!){ shopifyqlQuery(query:$q){ parseErrors tableData { columns { name } rows } } }`,
+    variables: { q }
   });
   let j;
   try { j = await r.json(); } catch (e) { throw new Error(`HTTP ${r.status} (réponse non-JSON)`); }
@@ -72,7 +82,7 @@ async function shopifyql(q) {
   if (!node) throw new Error("data.shopifyqlQuery absent");
   if (node.parseErrors && node.parseErrors.length) throw new Error("ShopifyQL: " + node.parseErrors.join(" | "));
   if (!node.tableData) return [];
-  return node.tableData.rows || []; // rows = tableau d'objets {colonne: valeur}
+  return node.tableData.rows || [];
 }
 
 async function shopifyMetrics(start, end, errors) {
@@ -96,14 +106,9 @@ async function shopifyMetrics(start, end, errors) {
   return out;
 }
 
-// Compte (sans lire d'email) les commandes payées d'un prospect dans la période
 async function hasPaidOrder(email, start, end) {
   const q = `email:${email} financial_status:paid created_at:>=${start} created_at:<=${addDays(end, 1)}`;
-  const r = await fetch(`https://${SHOP}/admin/api/${API_VER}/graphql.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": SHOP_TOKEN },
-    body: JSON.stringify({ query: `query($q:String!){ orders(first:1, query:$q){ edges { node { id } } } }`, variables: { q } })
-  });
+  const r = await shopifyAdmin({ query: `query($q:String!){ orders(first:1, query:$q){ edges { node { id } } } }`, variables: { q } });
   const j = await r.json();
   return (j?.data?.orders?.edges?.length || 0) > 0;
 }
@@ -152,21 +157,18 @@ module.exports = async (req, res) => {
   const days = Math.round((new Date(end) - new Date(start)) / 86400000) + 1;
   const result = { range, start, end, errors: [], partial: {} };
 
-  // Shopify (toutes fenêtres)
   try {
     Object.assign(result, await shopifyMetrics(start, end, result.errors));
   } catch (e) { result.errors.push("shopify: " + e.message); }
 
-  // Gmail : nombre de demandes (toutes fenêtres)
   let token = null;
   try {
     token = await gmailToken();
     const startEp = parisDayStartEpoch(start);
-    const endEp = parisDayStartEpoch(addDays(end, 1)); // minuit Paris du lendemain
+    const endEp = parisDayStartEpoch(addDays(end, 1));
     const ids = await gListIds(token, `${SUBJECT} after:${startEp} before:${endEp}`);
     result.demandes_brut = ids.length;
 
-    // Matching exact : seulement sur fenêtres courtes (sinon trop long en live → prévoir un cron)
     if (days <= 2 && ids.length <= 600) {
       const extracted = await mapPool(ids, 15, id => gExtractEmail(token, id).catch(() => null));
       const emails = new Set(extracted.filter(Boolean));
