@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mélodine — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#F5F1EA; --paper:#FFFFFF; --emeraude:#00875A; --hover:#006B47;
+    --charcoal:#0F0F0F; --muted:#76746C; --hint:#9a978d; --line:rgba(15,15,15,.10);
+    --soft:#EDE8DE; --emeraude-soft:#E3F0EA;
+    --serif:'Cormorant Garamond',Georgia,serif; --sans:'Inter',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--charcoal);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.5}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 56px}
+  .top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .brand{font-family:var(--serif);font-style:italic;font-weight:600;color:var(--emeraude);
+    font-size:38px;line-height:.95;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px;letter-spacing:.3px}
+  .status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--emeraude);display:inline-block}
+  .dot.idle{background:var(--hint)} .dot.err{background:#c0392b}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:500;color:var(--charcoal);
+    background:var(--paper);border:1px solid var(--line);border-radius:999px;
+    padding:8px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:.15s}
+  .btn:hover{border-color:var(--emeraude);color:var(--emeraude)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn .sp{width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--emeraude);
+    border-radius:50%;animation:spin .7s linear infinite;display:none}
+  .btn.loading .sp{display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .tabs{display:flex;gap:8px;margin:22px 0 4px;flex-wrap:wrap}
+  .tab{font-size:13px;font-weight:500;color:var(--muted);background:transparent;border:1px solid transparent;
+    border-radius:999px;padding:8px 16px;cursor:pointer;transition:.15s}
+  .tab:hover{color:var(--charcoal)} .tab.on{background:var(--charcoal);color:var(--cream);border-color:var(--charcoal)}
+  .sec{margin-top:26px}
+  .sl{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.6px;
+    text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+  .sl::after{content:"";flex:1;height:1px;background:var(--line)}
+  .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px}
+  .c{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px 18px;min-height:96px;
+    display:flex;flex-direction:column;justify-content:space-between}
+  .lab{font-size:13px;color:var(--muted);margin:0 0 10px;display:flex;align-items:center;gap:6px}
+  .n{font-size:27px;font-weight:600;letter-spacing:-.3px;line-height:1;font-variant-numeric:tabular-nums}
+  .s{font-size:12px;color:var(--hint);margin-top:7px}
+  .c.key{background:var(--emeraude-soft);border-color:rgba(0,135,90,.25)}
+  .c.key .n{color:var(--emeraude)} .c.key .lab{color:var(--hover)}
+  .live-tag{font-size:10px;font-weight:600;color:var(--hover);background:var(--emeraude-soft);border-radius:5px;padding:1px 6px;letter-spacing:.4px}
+  .skel{display:inline-block;width:54px;height:24px;border-radius:6px;
+    background:linear-gradient(90deg,var(--soft),#f3efe6,var(--soft));background-size:200% 100%;animation:sh 1.2s linear infinite}
+  @keyframes sh{to{background-position:-200% 0}}
+  .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:12px;color:var(--hint);line-height:1.6}
+  .foot b{color:var(--muted);font-weight:600}
+  .banner{display:none;margin-top:16px;background:#fbeeec;border:1px solid #e7c5c0;color:#8c3a2e;border-radius:10px;padding:10px 14px;font-size:13px}
+  .banner.show{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="brand">Mélodine</div>
+      <div class="sub">Dashboard · Shopify + Gmail en direct</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span class="status"><span class="dot idle" id="dot"></span><span id="statusTxt">chargement…</span></span>
+      <button class="btn" id="refresh"><span class="sp"></span><span id="refreshTxt">Rafraîchir</span></button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab" data-r="today">Aujourd'hui</button>
+    <button class="tab on" data-r="yesterday">Hier</button>
+    <button class="tab" data-r="7d">7 jours</button>
+    <button class="tab" data-r="30d">30 jours</button>
+  </div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="sec"><div class="sl">Trafic &amp; top funnel</div>
+    <div class="g">
+      <div class="c"><div class="lab">Visites</div><div class="n" id="visites">—</div></div>
+      <div class="c"><div class="lab">Demandes d'extrait <span class="live-tag">live</span></div><div class="n" id="demandes">—</div><div class="s" id="demandes_s">uniques —</div></div>
+      <div class="c"><div class="lab">Taux demande extrait</div><div class="n" id="t_demande">—</div><div class="s">demandes ÷ visites</div></div>
+    </div>
+  </div>
+
+  <div class="sec"><div class="sl">Conversion</div>
+    <div class="g">
+      <div class="c"><div class="lab">Ventes</div><div class="n" id="ventes">—</div></div>
+      <div class="c"><div class="lab">Taux de conversion</div><div class="n" id="t_conv">—</div><div class="s">ventes ÷ visites</div></div>
+      <div class="c key"><div class="lab">Taux extrait → vente <span class="live-tag">live</span></div><div class="n" id="t_extrait">—</div><div class="s" id="t_extrait_s">acheteurs venus d'un extrait</div></div>
+    </div>
+  </div>
+
+  <div class="sec"><div class="sl">Checkout</div>
+    <div class="g">
+      <div class="c"><div class="lab">Arrivés au checkout</div><div class="n" id="checkout">—</div></div>
+      <div class="c"><div class="lab">Pas payés (abandon)</div><div class="n" id="abandon">—</div><div class="s">arrivés − payés</div></div>
+      <div class="c"><div class="lab">Taux de paiement</div><div class="n" id="t_pay">—</div><div class="s">payés ÷ checkout</div></div>
+    </div>
+  </div>
+
+  <div class="sec"><div class="sl">Revenu</div>
+    <div class="g">
+      <div class="c"><div class="lab">Chiffre d'affaires</div><div class="n" id="ca">—</div></div>
+      <div class="c"><div class="lab">Panier moyen</div><div class="n" id="aov">—</div></div>
+      <div class="c"><div class="lab">CVR réelle</div><div class="n" id="cvr">—</div><div class="s">payés ÷ visites</div></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>Source.</b> Trafic, ventes, CA, checkout = Shopify. Demandes d'extrait = Gmail (sujet « Nouvelle demande extrait »). Le <b>taux extrait → vente</b> croise l'email de chaque demandeur avec tes commandes payées.<br>
+    <b>Matching.</b> Calculé en direct sur Aujourd'hui / Hier. Sur 7 et 30 jours le volume est trop gros pour le live — on branchera un calcul nocturne si tu veux.
+  </div>
+</div>
+
+<script>
+const NF=new Intl.NumberFormat('fr-FR');
+const EUR=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:2});
+const pct=x=>(x==null||!isFinite(x))?'—':(x*100).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+'\u00A0%';
+const $=id=>document.getElementById(id);
+let current='yesterday';
+
+function skel(ids){ids.forEach(id=>$(id).innerHTML='<span class="skel"></span>');}
+function setStatus(state,txt){$('dot').className='dot '+(state==='ok'?'':state==='err'?'err':'idle');$('statusTxt').textContent=txt;}
+
+function paint(d){
+  const visites=d.visites||0, reached=d.reached_checkout||0, completed=d.completed_checkout||0, ventes=d.ventes||0;
+  $('visites').textContent=NF.format(visites);
+  $('ventes').textContent=NF.format(ventes);
+  $('ca').textContent=EUR.format(d.ca||0);
+  $('aov').textContent=d.aov!=null?EUR.format(d.aov):'—';
+  $('checkout').textContent=NF.format(reached);
+  $('abandon').textContent=NF.format(Math.max(reached-completed,0));
+  $('t_conv').textContent=pct(visites?ventes/visites:null);
+  $('t_pay').textContent=pct(reached?completed/reached:null);
+  $('cvr').textContent=pct(visites?completed/visites:null);
+
+  if(d.demandes_brut!=null){
+    $('demandes').textContent=NF.format(d.demandes_brut);
+    $('demandes_s').textContent='uniques '+(d.demandes_uniques!=null?NF.format(d.demandes_uniques):'—');
+    $('t_demande').textContent=pct(visites?d.demandes_brut/visites:null);
+  } else { skel(['demandes','t_demande']); $('demandes_s').textContent='uniques —'; }
+
+  const base=d.demandes_uniques!=null?d.demandes_uniques:d.demandes_brut;
+  if(d.matched_ventes!=null && base){
+    $('t_extrait').textContent=pct(d.matched_ventes/base);
+    $('t_extrait_s').textContent=NF.format(d.matched_ventes)+' / '+NF.format(base)+' demandes';
+  } else {
+    $('t_extrait').textContent='—';
+    $('t_extrait_s').textContent=(d.partial&&d.partial.matching)?'7j/30j : pas en live':'indispo';
+  }
+}
+
+async function load(r){
+  const btn=$('refresh'); btn.classList.add('loading'); btn.disabled=true; $('refreshTxt').textContent='Calcul…';
+  setStatus('idle','récupération…'); $('banner').classList.remove('show');
+  skel(['visites','demandes','t_demande','ventes','t_conv','t_extrait','checkout','abandon','t_pay','ca','aov','cvr']);
+  try{
+    const res=await fetch('/api/kpis?range='+encodeURIComponent(r),{cache:'no-store'});
+    if(!res.ok) throw new Error('serveur '+res.status);
+    const d=await res.json();
+    paint(d);
+    const now=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    if(d.errors&&d.errors.length){ setStatus('err','maj partielle · '+now);
+      $('banner').textContent='Souci sur une source : '+d.errors.join(' | '); $('banner').classList.add('show'); }
+    else setStatus('ok','à jour · '+now);
+  }catch(e){
+    setStatus('err','échec'); $('banner').textContent="Le serveur n'a pas répondu ("+e.message+"). Vérifie le déploiement et les variables d'environnement."; $('banner').classList.add('show');
+  }finally{ btn.classList.remove('loading'); btn.disabled=false; $('refreshTxt').textContent='Rafraîchir'; }
+}
+
+$('tabs').addEventListener('click',e=>{const t=e.target.closest('.tab');if(!t)return;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');current=t.dataset.r;load(current);});
+$('refresh').addEventListener('click',()=>load(current));
+load(current);
+</script>
+</body>
+</html>
