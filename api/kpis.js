@@ -23,6 +23,20 @@ function rangeDates(range) {
   if (range === "7d") return { start: addDays(today, -6), end: today };
   return { start: addDays(today, -29), end: today };
 }
+// Résout la période demandée : plage perso (start/end) si fournie et valide, sinon raccourci.
+function isIsoDate(s) { return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+function resolvePeriod(query) {
+  let start = query?.start, end = query?.end;
+  if (isIsoDate(start) && isIsoDate(end)) {
+    if (start > end) { const t = start; start = end; end = t; } // ordre garanti
+    const today = parisToday();
+    if (end > today) end = today;                                // pas de futur
+    if (start > today) start = today;
+    return { start, end, range: "custom" };
+  }
+  const range = (query?.range || "yesterday").toString();
+  return { ...rangeDates(range), range };
+}
 function tzOffsetMs(date, tz) {
   const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const p = dtf.formatToParts(date).reduce((a, x) => { a[x.type] = x.value; return a; }, {});
@@ -152,8 +166,7 @@ async function gExtractEmail(token, id) {
 
 // ---------- handler ----------
 module.exports = async (req, res) => {
-  const range = (req.query?.range || "yesterday").toString();
-  const { start, end } = rangeDates(range);
+  const { start, end, range } = resolvePeriod(req.query || {});
   const days = Math.round((new Date(end) - new Date(start)) / 86400000) + 1;
   const result = { range, start, end, errors: [], partial: {} };
 
